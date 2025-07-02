@@ -72,10 +72,10 @@ def process_kmz_bytes(kmz_bytes: bytes) -> List[dict]:
             
             utm = tmp_df.apply(
                 lambda r: pd.Series(lonlat_to_utm(r.lon, r.lat),
-                                    index=["x", "y", "UTM_zone"]), axis=1
+                                    index=["xx", "yy", "UTM_zone", "responsable"]), axis=1
             )
             tmp_df = pd.concat([tmp_df, utm], axis=1)
-            recs.extend(tmp_df[["Name", "x", "y", "UTM_zone"]]
+            recs.extend(tmp_df[["Name", "xx", "yy", "UTM_zone", "responsable"]]
                         .to_dict(orient="records"))
         return recs
 
