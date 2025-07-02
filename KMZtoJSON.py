@@ -18,19 +18,21 @@ from pyproj import Transformer
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-# ─── Configuración CORS (ajusta dominios de tu app FlutterFlow) ──────────
-origins = [
-    "https://*.flutterflow.app",
-    # "https://tudominio.com",
-]
-
 app = FastAPI(title="KMZ → UTM API")
+
+# Orígenes explícitos (exact match)
+whitelist = [
+    "https://preview.flutterflow.io",
+    "http://localhost",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_methods=["POST"],
-    allow_headers=["*"],
+    allow_origins=whitelist,                         # matches exact hosts
+    allow_origin_regex=r"https://.*\.flutterflow\.app",  # cualquier subdominio *.flutterflow.app
+    allow_methods=["POST"],                         # limita a POST; agrega "OPTIONS" si quieres manejar pre-flight tú
+    allow_headers=["*"],                            # deja pasar todos los headers
+    max_age=3600,                                   # caché del pre-flight (1 h)
 )
 
 # ─── Utilidades ──────────────────────────────────────────────────────────
