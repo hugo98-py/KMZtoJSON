@@ -68,7 +68,8 @@ def process_kmz_bytes(kmz_bytes: bytes) -> List[dict]:
             tmp_df = pd.DataFrame(gdf["Name"])
             tmp_df["lon"] = gdf.geometry.x
             tmp_df["lat"] = gdf.geometry.y
-
+            tmp_df["responsable"] = ""
+            
             utm = tmp_df.apply(
                 lambda r: pd.Series(lonlat_to_utm(r.lon, r.lat),
                                     index=["x", "y", "UTM_zone"]), axis=1
