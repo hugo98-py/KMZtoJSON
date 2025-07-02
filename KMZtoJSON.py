@@ -45,15 +45,15 @@ def lonlat_to_utm(lon: float, lat: float) -> tuple[float, float, str]:
 
 def process_kmz_bytes(kmz_bytes: bytes) -> List[dict]:
     with tempfile.TemporaryDirectory() as tmp:
-        # guardar kmz
+        # 1. guardar kmz
         path = os.path.join(tmp, "upload.kmz")
         with open(path, "wb") as f:
             f.write(kmz_bytes)
 
-        # descomprimir
+        # 2. descomprimir
         zipfile.ZipFile(path).extractall(tmp)
 
-        # localizar KML
+        # 3. localizar KML
         kml_files = [
             os.path.join(r, f)
             for r, _, files in os.walk(tmp)
@@ -65,20 +65,30 @@ def process_kmz_bytes(kmz_bytes: bytes) -> List[dict]:
         recs = []
         for kml in kml_files:
             gdf = gpd.read_file(kml, driver="KML")
-            tmp_df = pd.DataFrame(gdf["Name"])
-            tmp_df["lon"] = gdf.geometry.x
-            tmp_df["lat"] = gdf.geometry.y
-            tmp_df["responsable"] = ""
-            
+
+            # --- DataFrame base ---
+            tmp_df = pd.DataFrame({
+                "Name": gdf["Name"],
+                "lon":  gdf.geometry.x,
+                "lat":  gdf.geometry.y,
+                "responsable": ""
+            })
+
+            # --- columnas UTM ---
             utm = tmp_df.apply(
                 lambda r: pd.Series(lonlat_to_utm(r.lon, r.lat),
-                                    index=["xx", "yy", "UTM_zone"]), axis=1
+                                    index=["xx", "yy", "UTM_zone"]),
+                axis=1
             )
+            tmp_df = pd.concat([tmp_df, utm], axis=1)
+
+            # --- añadir al resultado ---
             recs.extend(
-                tmp_df[["Name", "xx", "yy", "UTM_zone", "responsable", "lon", "lat"]]
+                tmp_df[["Name", "lon", "lat", "xx", "yy",
+                        "UTM_zone", "responsable"]]
                 .to_dict(orient="records")
             )
-)
+
         return recs
 
 # ─── Endpoint ────────────────────────────────────────────────────────────
