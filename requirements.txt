@@ -4,3 +4,4 @@ geopandas
 pyproj
 pandas
 shapely
+python-multipart 
