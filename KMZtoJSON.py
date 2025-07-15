@@ -37,7 +37,7 @@ ROOT_DIR = Path(__file__).resolve().parent           # carpeta del .py
 BASE     = Path(os.getenv("RECORTADAS_CENTRO_NORTE", ROOT_DIR))      # override opcional
 
 COM_SH = BASE / "COMUNAS"      / "COMUNAS_CENTRO_NORTE.shp"
-LOC_SH = BASE / "LOCALIDADES"  / "ZONAS_POBLADAS_CENTRO_NORTE.shp"
+LOC_SH = BASE / "ZONAS_POBLADAS"  / "ZONAS_POBLADAS_CENTRO_NORTE.shp"
 
 # ─────────────────────── Utilidades de texto ───────────────────────────
 def quitar_tildes(txt: str) -> str:
