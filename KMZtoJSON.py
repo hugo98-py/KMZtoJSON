@@ -33,8 +33,8 @@ app.add_middleware(
 )
 
 # ─────────────────────── Rutas a los shapefiles ────────────────────────
-ROOT_DIR = Path(__file__).resolve().parent           # carpeta del .py
-BASE     = Path(os.getenv("RECORTADAS_CENTRO_NORTE", ROOT_DIR))      # override opcional
+ROOT_DIR = Path(__file__).resolve().parent     # carpeta donde vive este .py
+BASE = ROOT_DIR 
 
 COM_SH = BASE / "COMUNAS"      / "COMUNAS_CENTRO_NORTE.shp"
 LOC_SH = BASE / "ZONAS_POBLADAS"  / "ZONAS_POBLADAS_CENTRO_NORTE.shp"
