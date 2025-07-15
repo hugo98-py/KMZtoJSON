@@ -30,8 +30,11 @@ app.add_middleware(
 )
 
 # ─── 0. Rutas de shapefiles ─────────────────────────────────────────────
-BASE = Path(r"C:/Users/Hugo/OneDrive - AMS CONSULTORES SPA/Documentos/AMS/Proyectos/AMS App/Materiales/Vectoriales/DPA_2023")
+# Carpeta del archivo actual
+ROOT_DIR = Path(__file__).resolve().parent
 
+# Carpeta con los shapefiles (hermana del .py)
+BASE = ROOT_DIR / "DPA_2023"
 REG_SH  = BASE / "REGIONES"        / "REGIONES_v1.shp"
 PROV_SH = BASE / "PROVINCIAS"      / "PROVINCIAS_v1.shp"
 COM_SH  = BASE / "COMUNAS"         / "COMUNAS_v1.shp"
