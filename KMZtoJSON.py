@@ -1,41 +1,62 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jul  2 01:04:53 2025
-
-@author: Hugo
+FastAPI service: recibe un KMZ vía POST y devuelve JSON con:
+    - lon / lat
+    - UTM (x, y, zona)
+    - Región, Provincia, Comuna y Localidad
 """
-
-"""
-FastAPI service: recibe un KMZ vía POST y devuelve coordenadas UTM en JSON.
-"""
-
-import os, zipfile, tempfile
+import os, zipfile, tempfile, unicodedata
 from typing import List
-
-import pandas as pd
+from pathlib import Path
+import numpy as np 
 import geopandas as gpd
+import pandas as pd
 from pyproj import Transformer
+from shapely.geometry import Point
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="KMZ → UTM API")
+# ─── Configuración FastAPI ──────────────────────────────────────────────
+app = FastAPI(title="KMZ → UTM + DPA + Localidad API")
 
-# Orígenes explícitos (exact match)
-whitelist = [
-    "https://preview.flutterflow.io",
-    "http://localhost",
-]
-
+whitelist = ["https://preview.flutterflow.io", "http://localhost"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=whitelist,                         # matches exact hosts
-    allow_origin_regex=r"https://.*\.flutterflow\.app",  # cualquier subdominio *.flutterflow.app
-    allow_methods=["POST"],                         # limita a POST; agrega "OPTIONS" si quieres manejar pre-flight tú
-    allow_headers=["*"],                            # deja pasar todos los headers
-    max_age=3600,                                   # caché del pre-flight (1 h)
+    allow_origins=whitelist,
+    allow_origin_regex=r"https://.*\.flutterflow\.app",
+    allow_methods=["POST"],
+    allow_headers=["*"],
+    max_age=3600,
 )
 
-# ─── Utilidades ──────────────────────────────────────────────────────────
+# ─── 0. Rutas de shapefiles ─────────────────────────────────────────────
+BASE = Path(r"C:/Users/Hugo/OneDrive - AMS CONSULTORES SPA/Documentos/AMS/Proyectos/AMS App/Materiales/Vectoriales/DPA_2023")
+
+REG_SH  = BASE / "REGIONES"        / "REGIONES_v1.shp"
+PROV_SH = BASE / "PROVINCIAS"      / "PROVINCIAS_v1.shp"
+COM_SH  = BASE / "COMUNAS"         / "COMUNAS_v1.shp"
+LOC_SH  = BASE / "Areas_Pobladas"  / "Areas_Pobladas.shp"   # ← nuevo
+
+def quitar_tildes(txt: str) -> str:
+    return (unicodedata.normalize("NFKD", txt)
+            .encode("ASCII", "ignore")
+            .decode("utf‑8")) if isinstance(txt, str) else txt
+
+# Carga las capas (una sola vez al iniciar) ------------------------------
+gdf_region    = gpd.read_file(REG_SH ).to_crs(4326)[["REGION",    "geometry"]]
+gdf_provincia = gpd.read_file(PROV_SH).to_crs(4326)[["PROVINCIA", "geometry"]]
+gdf_comuna    = gpd.read_file(COM_SH ).to_crs(4326)[["COMUNA",    "geometry"]]
+gdf_localidad = gpd.read_file(LOC_SH ).to_crs(4326)[["Localidad", "geometry"]]  # usa el campo real
+
+for col_df, col_name in [
+        (gdf_region,    "REGION"),
+        (gdf_provincia, "PROVINCIA"),
+        (gdf_comuna,    "COMUNA"),
+        (gdf_localidad, "Localidad"),
+]:
+    col_df[col_name] = col_df[col_name].apply(quitar_tildes)
+
+# ─── 1. Utilidades ──────────────────────────────────────────────────────
 def lonlat_to_utm(lon: float, lat: float) -> tuple[float, float, str]:
     zone  = int((lon + 180) // 6) + 1
     south = lat < 0
@@ -43,22 +64,46 @@ def lonlat_to_utm(lon: float, lat: float) -> tuple[float, float, str]:
     e, n = Transformer.from_crs(4326, epsg, always_xy=True).transform(lon, lat)
     return e, n, f"{zone}{'S' if south else 'N'}"
 
+def add_admin_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Agrega región, provincia, comuna y localidad mediante spatial join."""
+    gdf_pts = gpd.GeoDataFrame(
+        df,
+        geometry=[Point(xy) for xy in zip(df.lon, df.lat)],
+        crs=4326
+    )
+
+    gdf_pts = gpd.sjoin(gdf_pts,
+                        gdf_region.rename(columns={"REGION": "region"}),
+                        predicate="within", how="left").drop(columns="index_right")
+
+    gdf_pts = gpd.sjoin(gdf_pts,
+                        gdf_provincia.rename(columns={"PROVINCIA": "provincia"}),
+                        predicate="within", how="left").drop(columns="index_right")
+
+    gdf_pts = gpd.sjoin(gdf_pts,
+                        gdf_comuna.rename(columns={"COMUNA": "comuna"}),
+                        predicate="within", how="left").drop(columns="index_right")
+
+    gdf_pts = gpd.sjoin(gdf_pts,
+                        gdf_localidad.rename(columns={"Localidad": "localidad"}),
+                        predicate="within", how="left").drop(columns="index_right")
+
+    return gdf_pts.drop(columns="geometry")
+
+# ─── 2. Procesamiento del KMZ ───────────────────────────────────────────
 def process_kmz_bytes(kmz_bytes: bytes) -> List[dict]:
     with tempfile.TemporaryDirectory() as tmp:
-        # 1. guardar kmz
-        path = os.path.join(tmp, "upload.kmz")
-        with open(path, "wb") as f:
-            f.write(kmz_bytes)
+        # 1) guarda el .kmz
+        path = Path(tmp, "upload.kmz")
+        path.write_bytes(kmz_bytes)
 
-        # 2. descomprimir
+        # 2) descomprime
         zipfile.ZipFile(path).extractall(tmp)
 
-        # 3. localizar KML
-        kml_files = [
-            os.path.join(r, f)
-            for r, _, files in os.walk(tmp)
-            for f in files if f.lower().endswith(".kml")
-        ]
+        # 3) localiza todos los .kml
+        kml_files = [Path(r, f)
+                     for r, _, files in os.walk(tmp)
+                     for f in files if f.lower().endswith(".kml")]
         if not kml_files:
             raise ValueError("KMZ sin KML interno.")
 
@@ -66,32 +111,34 @@ def process_kmz_bytes(kmz_bytes: bytes) -> List[dict]:
         for kml in kml_files:
             gdf = gpd.read_file(kml, driver="KML")
 
-            # --- DataFrame base ---
-            tmp_df = pd.DataFrame({
+            base = pd.DataFrame({
                 "Name": gdf["Name"],
                 "lon":  gdf.geometry.x,
                 "lat":  gdf.geometry.y,
                 "responsable": ""
             })
 
-            # --- columnas UTM ---
-            utm = tmp_df.apply(
+            # UTM
+            utm = base.apply(
                 lambda r: pd.Series(lonlat_to_utm(r.lon, r.lat),
                                     index=["xx", "yy", "UTM_zone"]),
                 axis=1
             )
-            tmp_df = pd.concat([tmp_df, utm], axis=1)
+            base = pd.concat([base, utm], axis=1)
 
-            # --- añadir al resultado ---
+            # Región / Provincia / Comuna / Localidad
+            base = add_admin_columns(base)
+            base["localidad"] = base["localidad"].fillna("Sin localidad")
+            
             recs.extend(
-                tmp_df[["Name", "lon", "lat", "xx", "yy",
-                        "UTM_zone", "responsable"]]
+                base[["Name", "lon", "lat", "xx", "yy", "UTM_zone",
+                      "region", "provincia", "comuna", "localidad",
+                      "responsable"]]
                 .to_dict(orient="records")
             )
-
         return recs
 
-# ─── Endpoint ────────────────────────────────────────────────────────────
+# ─── 3. Endpoint ────────────────────────────────────────────────────────
 @app.post("/upload-kmz")
 async def upload_kmz(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".kmz"):
